@@ -1,0 +1,20 @@
+name: Atualizar Bolão Copa 2026
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # toda hora
+  workflow_dispatch:        # permite rodar manualmente pelo GitHub
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar dependências
+        run: pip install requests
+
+      - name: Atualizar resultados
+        run: python bolao-copa-2026-atualizar.py update
