@@ -686,6 +686,7 @@ input:focus,select:focus{border-color:var(--gold);}
         <div id="espn-sync-status" style="font-size:12px;color:var(--muted);line-height:1.6;min-height:20px;"></div>
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
           <button class="btn-gold" style="font-size:12px;padding:7px 14px;" onclick="adminForceSyncESPN()">🔄 Sincronizar Agora</button>
+          <button class="btn-gold" style="font-size:12px;padding:7px 14px;" onclick="adminAuditESPN()">🔍 Auditar vs ESPN</button>
           <span id="espn-sync-spinner" style="display:none;font-size:12px;color:var(--gold);">⏳ Buscando resultados na ESPN...</span>
         </div>
         <details style="margin-top:14px;">
@@ -3971,6 +3972,10 @@ async function syncGroupResults(bolaoId, opts={}){
 
   // Mapa invertido: nome PT → nome ESPN
   const ptToEspn = Object.fromEntries(Object.entries(teamMap).map(([k,v])=>[v,k]));
+  // Mapa robusto: nome PT → TODAS as variantes de nome ESPN (à prova de variações de displayName)
+  const ptToEspnSet = {};
+  Object.entries(teamMap).forEach(([espn,pt])=>{ (ptToEspnSet[pt]=ptToEspnSet[pt]||[]).push(espn); });
+  const espnNamesOf = pt => ptToEspnSet[pt] || [];
 
   const existingSnap = await db.ref('/boloes/'+bolaoId+'/realResults/groups').get();
   const existing = existingSnap.val() || {};
@@ -4001,18 +4006,18 @@ async function syncGroupResults(bolaoId, opts={}){
     catch(e){ notFound.push(...matches.map(m=>({id:m.id, reason:'ESPN falhou: '+e.message}))); continue; }
 
     for(const match of matches){
-      const homeESPN = ptToEspn[match.home.n];
-      const awayESPN = ptToEspn[match.away.n];
+      const homeNames = espnNamesOf(match.home.n);
+      const awayNames = espnNamesOf(match.away.n);
       // Time sem mapeamento → pula silenciosamente (esperado no modo teste)
-      if(!homeESPN || !awayESPN) continue;
+      if(!homeNames.length || !awayNames.length) continue;
 
       const ev = events.find(e=>{
         const h=e.homeName, a=e.awayName;
-        return (h===homeESPN&&a===awayESPN)||(h===awayESPN&&a===homeESPN);
+        return (homeNames.includes(h)&&awayNames.includes(a))||(awayNames.includes(h)&&homeNames.includes(a));
       });
 
       if(!ev){
-        notFound.push({id:match.id, reason:`${homeESPN} × ${awayESPN} não encontrado na ESPN (${date})`});
+        notFound.push({id:match.id, reason:`${match.home.n} × ${match.away.n} não encontrado na ESPN (${date})`});
         continue;
       }
       if(!ev.finished){
@@ -4020,9 +4025,9 @@ async function syncGroupResults(bolaoId, opts={}){
         continue;
       }
 
-      // Orienta conforme o bolão (home/away pode ser diferente do ESPN)
+      // Orienta pelo TIME (não por string única): se o mandante ESPN é o visitante do bolão, inverte.
       let homeScore=ev.homeScore, awayScore=ev.awayScore;
-      if(ev.homeName===awayESPN){ [homeScore,awayScore]=[awayScore,homeScore]; }
+      if(awayNames.includes(ev.homeName)){ [homeScore,awayScore]=[awayScore,homeScore]; }
 
       await db.ref('/boloes/'+bolaoId+'/realResults/groups/'+match.id).set({home:homeScore, away:awayScore});
       synced.push({id:match.id, home:homeScore, away:awayScore,
@@ -4030,6 +4035,103 @@ async function syncGroupResults(bolaoId, opts={}){
     }
   }
   return {synced, notFound, alreadyHad};
+}
+
+// =====================================================
+// DUPLA-VERIFICAÇÃO — audita TODOS os placares gravados contra a ESPN
+// Diferente do sync: re-confere até o que já está gravado, usando os dados
+// FINAIS da ESPN (janela ±1 dia p/ fuso) e corrige divergências automaticamente.
+// =====================================================
+async function auditResultsVsESPN(bolaoId, opts={}){
+  const { league='fifa.world', teamMap=ESPN_PT_MAP, autofix=true } = opts;
+  if(!db || !bolaoId) return {error:'Firebase ou bolão não disponível'};
+
+  const ptToEspnSet = {};
+  Object.entries(teamMap).forEach(([espn,pt])=>{ (ptToEspnSet[pt]=ptToEspnSet[pt]||[]).push(espn); });
+  const namesOf = pt => ptToEspnSet[pt] || [];
+
+  const snap = await db.ref('/boloes/'+bolaoId+'/realResults/groups').get();
+  const stored = snap.val() || {};
+  const ids = Object.keys(stored);
+  if(!ids.length) return {checked:0, mismatches:[], fixed:0, notFound:[], noStored:true};
+
+  const matchById = {};
+  GROUP_KEYS.forEach(g=>getGroupMatches(g).forEach(m=>{ matchById[m.id]=m; }));
+
+  const dateCache = {};
+  async function eventsFor(dateStr){
+    if(dateCache[dateStr]!==undefined) return dateCache[dateStr];
+    try{ dateCache[dateStr] = await fetchESPNScoreboard(dateStr, league); }
+    catch(e){ dateCache[dateStr] = null; }
+    return dateCache[dateStr];
+  }
+  const shift = (ms,days)=>toYYYYMMDD(new Date(ms + days*864e5));
+
+  const mismatches=[], notFound=[]; let checked=0, fixed=0;
+  for(const id of ids){
+    const m = matchById[id]; const sched = WC_SCHEDULE[id];
+    if(!m || !sched || !sched.t) continue;
+    const homeNames = namesOf(m.home.n), awayNames = namesOf(m.away.n);
+    if(!homeNames.length || !awayNames.length) continue;
+
+    let ev=null;
+    for(const dd of [shift(sched.t,0), shift(sched.t,-1), shift(sched.t,1)]){
+      const evs = await eventsFor(dd);
+      if(!evs) continue;
+      ev = evs.find(e=>(homeNames.includes(e.homeName)&&awayNames.includes(e.awayName))||(awayNames.includes(e.homeName)&&homeNames.includes(e.awayName)));
+      if(ev) break;
+    }
+    if(!ev){ notFound.push({id, reason:`${m.home.n} × ${m.away.n} não encontrado na ESPN`}); continue; }
+    if(!ev.finished){ notFound.push({id, reason:`${m.home.n} × ${m.away.n}: ainda não finalizado na ESPN`}); continue; }
+
+    let cH=ev.homeScore, cA=ev.awayScore;
+    if(awayNames.includes(ev.homeName)){ [cH,cA]=[cA,cH]; }
+
+    checked++;
+    const st = stored[id];
+    if(st.home!==cH || st.away!==cA){
+      mismatches.push({id, teams:`${m.home.n} × ${m.away.n}`, stored:`${st.home}-${st.away}`, correct:`${cH}-${cA}`});
+      if(autofix){
+        await db.ref('/boloes/'+bolaoId+'/realResults/groups/'+id).set({home:cH, away:cA});
+        fixed++;
+      }
+    }
+  }
+  return {checked, mismatches, fixed, notFound};
+}
+
+function renderAuditStatus(result){
+  const el=document.getElementById('espn-sync-status');
+  if(!el) return;
+  if(result.error){ el.innerHTML=`<span style="color:var(--red);">❌ ${result.error}</span>`; return; }
+  const ts=new Date().toLocaleString('pt-BR',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'});
+  let html=`<div style="color:var(--muted);">Auditoria ESPN: ${ts}</div>`;
+  if(result.noStored){ el.innerHTML=html+`<div style="color:var(--muted);">Nenhum resultado gravado ainda.</div>`; return; }
+  if(!result.mismatches.length){
+    html+=`<div style="color:var(--green);">✅ ${result.checked} resultado(s) conferido(s) — todos batem com a ESPN.</div>`;
+  } else {
+    html+=`<div style="color:${result.fixed?'var(--green)':'var(--red)'};margin-top:4px;">${result.fixed?('🔧 '+result.fixed+' divergência(s) CORRIGIDA(S)'):('⚠️ '+result.mismatches.length+' divergência(s) encontrada(s)')} (de ${result.checked} conferidos):</div>`;
+    result.mismatches.forEach(s=>{ html+=`<div style="color:var(--muted);padding-left:12px;">• ${s.teams} (${s.id}): estava ${s.stored} → ESPN ${s.correct}</div>`; });
+  }
+  if(result.notFound&&result.notFound.length){
+    html+=`<div style="color:var(--gold);margin-top:4px;">⏳ ${result.notFound.length} não conferido(s) (sem dado final na ESPN).</div>`;
+  }
+  el.innerHTML=html;
+}
+
+async function adminAuditESPN(){
+  const bid=state.adminBolaoId;
+  if(!bid) return toast('Carregue um bolão primeiro','error');
+  const spinner=document.getElementById('espn-sync-spinner');
+  if(spinner) spinner.style.display='inline';
+  try{
+    const result=await auditResultsVsESPN(bid,{autofix:true});
+    renderAuditStatus(result);
+    if(result.fixed) toast(`${result.fixed} resultado(s) corrigido(s) pela auditoria ESPN!`,'success');
+    else if(result.mismatches&&result.mismatches.length) toast(`${result.mismatches.length} divergência(s) — veja o status`,'error');
+    else toast('Auditoria concluída — tudo confere com a ESPN','success');
+  }catch(e){ renderAuditStatus({error:e.message}); toast('Erro na auditoria: '+e.message,'error'); }
+  finally{ if(spinner) spinner.style.display='none'; }
 }
 
 function renderSyncStatus(result, isTest=false){
@@ -4074,9 +4176,13 @@ async function adminForceSyncESPN(){
     ]);
     renderSyncStatus(result);
     applySyncedToAdminInputs(result.synced);
+    // Dupla-verificação: re-confere TODOS os placares contra a ESPN e corrige divergências
+    const audit = await auditResultsVsESPN(bid,{autofix:true});
+    if(audit && audit.fixed){ renderAuditStatus(audit); }
     const msgs = [];
     if(result.synced?.length) msgs.push(`${result.synced.length} resultado(s)`);
     if(ts.synced > 0) msgs.push(`${ts.synced} artilheiro(s)`);
+    if(audit && audit.fixed) msgs.push(`${audit.fixed} corrigido(s) na auditoria`);
     if(msgs.length) toast(msgs.join(' · ')+' sincronizado(s)!','success');
     else if(result.noPending) toast('Nenhuma partida pendente no momento','success');
     else toast('Verificação concluída — veja o status acima','success');
@@ -4107,17 +4213,20 @@ async function adminTestSyncESPN(){
 
 function startAutoResultSync(bolaoId){
   if(_espnSyncInterval) clearInterval(_espnSyncInterval);
-  // Verificação silenciosa imediata
-  Promise.all([syncGroupResults(bolaoId), syncTopScorers(bolaoId)])
-    .then(([r])=>renderSyncStatus(r)).catch(()=>{});
-  // Repete a cada 3 horas
-  _espnSyncInterval=setInterval(()=>{
+  const runOnce = (announce)=>{
     Promise.all([syncGroupResults(bolaoId), syncTopScorers(bolaoId)])
-      .then(([r])=>{
+      .then(async ([r])=>{
         renderSyncStatus(r);
-        if(r.synced?.length) toast(`${r.synced.length} resultado(s) auto-sincronizado(s) com a ESPN!`,'success');
+        if(announce && r.synced?.length) toast(`${r.synced.length} resultado(s) auto-sincronizado(s) com a ESPN!`,'success');
+        // Dupla-verificação automática: corrige qualquer placar divergente da ESPN
+        try{
+          const audit = await auditResultsVsESPN(bolaoId,{autofix:true});
+          if(audit && audit.fixed){ renderAuditStatus(audit); if(announce) toast(`${audit.fixed} placar(es) corrigido(s) pela auditoria ESPN`,'success'); }
+        }catch(e){}
       }).catch(()=>{});
-  }, 3*60*60*1000);
+  };
+  runOnce(false);                                            // imediata, silenciosa
+  _espnSyncInterval=setInterval(()=>runOnce(true), 3*60*60*1000); // a cada 3h
 }
 
 async function saveAdminResults(){

@@ -232,6 +232,47 @@ GROUP_MATCH_LOOKUP = {
 # Lookup inverso: G-ID → descrição legível
 MATCH_ID_TO_DESC = {v: " × ".join(sorted(k)) for k, v in GROUP_MATCH_LOOKUP.items()}
 
+# Home team do bolão para cada partida (t0/t1/t2 conforme definição do app)
+# Padrão: match1=t0, match2=t2, match3=t0, match4=t1, match5=t0, match6=t1
+MATCH_HOME_TEAM = {
+    # Grupo A: t0=México, t1=África do Sul, t2=Coreia do Sul, t3=República Checa
+    'GA1': 'México',          'GA2': 'Coreia do Sul',      'GA3': 'México',
+    'GA4': 'África do Sul',   'GA5': 'México',             'GA6': 'África do Sul',
+    # Grupo B: t0=Bósnia-Herzegovina, t1=Canadá, t2=Catar, t3=Suíça
+    'GB1': 'Bósnia-Herzegovina', 'GB2': 'Catar',           'GB3': 'Bósnia-Herzegovina',
+    'GB4': 'Canadá',          'GB5': 'Bósnia-Herzegovina', 'GB6': 'Canadá',
+    # Grupo C: t0=Brasil, t1=Marrocos, t2=Haiti, t3=Escócia
+    'GC1': 'Brasil',          'GC2': 'Haiti',              'GC3': 'Brasil',
+    'GC4': 'Marrocos',        'GC5': 'Brasil',             'GC6': 'Marrocos',
+    # Grupo D: t0=Turquia, t1=EUA, t2=Austrália, t3=Paraguai
+    'GD1': 'Turquia',         'GD2': 'Austrália',          'GD3': 'Turquia',
+    'GD4': 'EUA',             'GD5': 'Turquia',            'GD6': 'EUA',
+    # Grupo E: t0=Alemanha, t1=Curaçao, t2=Costa do Marfim, t3=Equador
+    'GE1': 'Alemanha',        'GE2': 'Costa do Marfim',    'GE3': 'Alemanha',
+    'GE4': 'Curaçao',         'GE5': 'Alemanha',           'GE6': 'Curaçao',
+    # Grupo F: t0=Holanda, t1=Japão, t2=Suécia, t3=Tunísia
+    'GF1': 'Holanda',         'GF2': 'Suécia',             'GF3': 'Holanda',
+    'GF4': 'Japão',           'GF5': 'Holanda',            'GF6': 'Japão',
+    # Grupo G: t0=Bélgica, t1=Egito, t2=Irã, t3=Nova Zelândia
+    'GG1': 'Bélgica',         'GG2': 'Irã',                'GG3': 'Bélgica',
+    'GG4': 'Egito',           'GG5': 'Bélgica',            'GG6': 'Egito',
+    # Grupo H: t0=Espanha, t1=Uruguai, t2=Cabo Verde, t3=Arábia Saudita
+    'GH1': 'Espanha',         'GH2': 'Cabo Verde',         'GH3': 'Espanha',
+    'GH4': 'Uruguai',         'GH5': 'Espanha',            'GH6': 'Uruguai',
+    # Grupo I: t0=França, t1=Noruega, t2=Senegal, t3=Iraque
+    'GI1': 'França',          'GI2': 'Senegal',            'GI3': 'França',
+    'GI4': 'Noruega',         'GI5': 'França',             'GI6': 'Noruega',
+    # Grupo J: t0=Argentina, t1=Áustria, t2=Argélia, t3=Jordânia
+    'GJ1': 'Argentina',       'GJ2': 'Argélia',            'GJ3': 'Argentina',
+    'GJ4': 'Áustria',         'GJ5': 'Argentina',          'GJ6': 'Áustria',
+    # Grupo K: t0=Portugal, t1=Colômbia, t2=RD Congo, t3=Uzbequistão
+    'GK1': 'Portugal',        'GK2': 'RD Congo',           'GK3': 'Portugal',
+    'GK4': 'Colômbia',        'GK5': 'Portugal',           'GK6': 'Colômbia',
+    # Grupo L: t0=Inglaterra, t1=Croácia, t2=Gana, t3=Panamá
+    'GL1': 'Inglaterra',      'GL2': 'Gana',               'GL3': 'Inglaterra',
+    'GL4': 'Croácia',         'GL5': 'Inglaterra',         'GL6': 'Croácia',
+}
+
 # Mapeamento de round ESPN → label amigável para mata-mata
 ESPN_ROUND_LABELS = {
     "Round of 32":   "Oitavas de final",
@@ -275,13 +316,30 @@ def bolao_path(bolao_id):
 
 # ─── ESPN API ──────────────────────────────────────────────────────────────────
 
+def _copa_date_strings():
+    """Datas YYYYMMDD de todo o período da Copa 2026 (11/jun a 19/jul)."""
+    from datetime import date, timedelta
+    d, end, out = date(2026, 6, 11), date(2026, 7, 19), []
+    while d <= end:
+        out.append(d.strftime("%Y%m%d"))
+        d += timedelta(days=1)
+    return out
+
 def fetch_copa_schedule():
-    """Retorna todos os eventos Copa 2026 disponíveis na ESPN."""
-    url = f"{ESPN_BASE}/{COPA_SLUG}/scoreboard"
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
-    data = r.json()
-    return data.get("events", [])
+    """Retorna eventos Copa 2026 da ESPN varrendo TODO o período do torneio
+    (não só os jogos de hoje). Assim, a cada execução o script re-confere todos
+    os jogos finalizados e corrige qualquer placar divergente automaticamente."""
+    seen = {}
+    for dstr in _copa_date_strings():
+        url = f"{ESPN_BASE}/{COPA_SLUG}/scoreboard?dates={dstr}"
+        try:
+            r = requests.get(url, timeout=20)
+            r.raise_for_status()
+            for ev in r.json().get("events", []):
+                seen[ev["id"]] = ev  # dedup por id do evento
+        except Exception as e:
+            print(f"  [aviso] Falha ao buscar scoreboard {dstr}: {e}")
+    return list(seen.values())
 
 def fetch_match_goals(event_id):
     """
@@ -441,7 +499,20 @@ def update_bolao(bolao_id, dry_run=False):
         match_id  = GROUP_MATCH_LOOKUP.get(team_pair)
 
         if match_id:
-            new_score = {"home": info["home_score"], "away": info["away_score"]}
+            # Atribui o placar PELO NOME da seleção — esquece quem a ESPN chamou
+            # de mandante/visitante. O gol de cada time vai pro slot certo do bolão.
+            scores_by_team = {info["home"]: info["home_score"],
+                              info["away"]: info["away_score"]}
+            bolao_home = MATCH_HOME_TEAM.get(match_id)
+            outros     = [t for t in scores_by_team if t != bolao_home]
+            bolao_away = outros[0] if outros else None
+            if bolao_home in scores_by_team and bolao_away in scores_by_team:
+                new_score = {"home": scores_by_team[bolao_home],
+                             "away": scores_by_team[bolao_away]}
+            else:
+                # fallback defensivo (não deveria ocorrer): orientação crua da ESPN
+                new_score = {"home": info["home_score"], "away": info["away_score"]}
+                print(f"  [aviso] {match_id}: nomes {list(scores_by_team)} não casaram com home={bolao_home} — usei orientação ESPN")
             already   = current_groups.get(match_id)
 
             if already == new_score:
