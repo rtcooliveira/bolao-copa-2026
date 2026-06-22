@@ -56,6 +56,8 @@ ESPN_TO_BOLAO = {
     "Bosnia and Herzegovina":    "Bósnia-Herzegovina",
     "Bosnia & Herzegovina":      "Bósnia-Herzegovina",
     "Bosnia":                    "Bósnia-Herzegovina",
+    "Bosnia-Herzegovina":        "Bósnia-Herzegovina",
+    "Bosnia Herzegovina":        "Bósnia-Herzegovina",
     "Qatar":                     "Catar",
     "Canada":                    "Canadá",
     "Switzerland":               "Suíça",
