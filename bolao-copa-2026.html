@@ -1106,17 +1106,46 @@ function isMatchPastIndividualDeadline(mid){
   return Date.now() >= (m.t - 2*60*60*1000);
 }
 
-// medium-only: verifica se os times reais da partida M{nn} batem com o bracket do usuário
+// ============================================================
+// Classificados REAIS automáticos (derivados de realResults.groups,
+// igual aos placares — sem inserção do admin).
+// ============================================================
+function realGroupsMap(){ return (state.realResults && state.realResults.groups) ? state.realResults.groups : {}; }
+function isGroupFinalReal(g){
+  const rg = realGroupsMap();
+  return getGroupMatches(g).every(mm=>{ const sc=rg[mm.id]; return sc && typeof sc.home==='number' && typeof sc.away==='number'; });
+}
+function allGroupsFinalReal(){ return GROUP_KEYS.every(isGroupFinalReal); }
+function realStandings(){ return calcAllStandings(realGroupsMap()); }
+function realR32Teams(){
+  const rSt = realStandings();
+  if(allGroupsFinalReal()){
+    const r={}; resolveR32Teams(rSt, getBest8Thirds(rSt)).forEach(x=>r[x.id]={home:x.home,away:x.away}); return r;
+  }
+  const out={};
+  R32_DEF.forEach(mm=>{
+    const slot=ref=>{ const pos=parseInt(ref[0]),grp=ref[1];
+      if((pos===1||pos===2)&&isGroupFinalReal(grp)){ const st=rSt[grp]; return st&&st[pos-1]?st[pos-1].n:null; }
+      return null; };
+    out[mm.id]={home:slot(mm.hRef),away:slot(mm.aRef)};
+  });
+  return out;
+}
+// 'pending' = grupo do confronto ainda não encerrou; 'open' = acertou os 2 classificados;
+// 'locked' = errou algum classificado (confronto não vai acontecer).
+function koMatchStatusMedium(mid){
+  const r32 = R32_DEF.find(mm=>mm.id===mid); if(!r32) return 'pending';
+  const real = realR32Teams()[mid]; if(!real || !real.home || !real.away) return 'pending';
+  const userSt = calcAllStandings(state.picks.groups||{});
+  const ut = getKnockoutTeams(mid, userSt, getBest8Thirds(userSt));
+  if(!ut.home || !ut.away) return 'locked';
+  const realSet = new Set([real.home, real.away]);
+  return (realSet.has(ut.home) && realSet.has(ut.away) && ut.home!==ut.away) ? 'open' : 'locked';
+}
+// medium-only: true se o usuário errou a classificação deste jogo (→ travado).
 function knockoutMismatchMedium(mid){
   if(!mid || !mid.startsWith('M')) return false;
-  const rr = state.realResults && state.realResults.knockout && state.realResults.knockout[mid];
-  if(!rr || !rr.hTeam || !rr.aTeam) return false; // sem dados ainda → não trava por isso
-  const standings = calcAllStandings(state.picks.groups||{});
-  const best8 = getBest8Thirds(standings);
-  const teams = getKnockoutTeams(mid, standings, best8);
-  if(!teams.home || !teams.away) return true; // bracket incompleto → trava
-  const userSet = new Set([teams.home, teams.away]);
-  return !userSet.has(rr.hTeam) || !userSet.has(rr.aTeam);
+  return koMatchStatusMedium(mid) === 'locked';
 }
 
 // função principal: retorna true se aquela partida específica está travada pro usuário
@@ -1698,6 +1727,9 @@ function applyLockedUI(){
   document.getElementById('submit-locked-msg').style.display='none';
   if(document.getElementById('tab-bracket') && document.getElementById('tab-bracket').classList.contains('active-tab')){
     renderBracket();
+  }
+  if(document.getElementById('tab-upcoming') && document.getElementById('tab-upcoming').classList.contains('active-tab')){
+    renderUpcomingTab();
   }
 }
 
@@ -2355,23 +2387,36 @@ function renderUpcomingTab(){
     });
   });
 
+  const _uSt = calcAllStandings(state.picks.groups||{});
+  const _uB8 = getBest8Thirds(_uSt);
   const koAll = [...R32_DEF,...R16_DEF,...QF_DEF,...SF_DEF,...THIRD_DEF,...FINAL_DEF];
   koAll.forEach(m => {
     const sched = WC_SCHEDULE[m.id];
     if(!sched) return;
     const dl = matchDeadlineMs(m.id);
-    if(isMatchLocked(m.id)) return;
+    const mismatch = (lvl==='medium' && knockoutMismatchMedium(m.id));
+    if(isMatchLocked(m.id) && !mismatch) return;   // travado por prazo/hard → fora da lista
     if(dl - now > FIVE_DAYS_MS) return;
     const rr = state.realResults && state.realResults.knockout && state.realResults.knockout[m.id];
+    const rk = realR32Teams()[m.id];
+    let hN, aN;
+    if(mismatch){
+      const ut = getKnockoutTeams(m.id, _uSt, _uB8);   // palpite (errado) do usuário
+      hN = ut.home; aN = ut.away;
+    } else {
+      hN = (rk && rk.home) || (rr && rr.hTeam) || null;
+      aN = (rk && rk.away) || (rr && rr.aTeam) || null;
+    }
     openMatches.push({
       id: m.id, ts: sched.t, dl,
       venue: sched.v,
       phase: ROUND_NAMES[m.id] || 'Mata-Mata',
-      home: (rr && rr.hTeam) || koRefLabel(m.hRef),
-      homeCc: (rr && rr.hTeam) ? (teamCCMap[rr.hTeam]||null) : null,
-      away: (rr && rr.aTeam) || koRefLabel(m.aRef),
-      awayCc: (rr && rr.aTeam) ? (teamCCMap[rr.aTeam]||null) : null,
+      home: hN || koRefLabel(m.hRef),
+      homeCc: hN ? (teamCCMap[hN]||null) : null,
+      away: aN || koRefLabel(m.aRef),
+      awayCc: aN ? (teamCCMap[aN]||null) : null,
       isKO: true,
+      mismatch: mismatch,
     });
   });
 
@@ -2426,6 +2471,7 @@ function renderUpcomingTab(){
       statusHtml = '<span style="color:'+bc+';font-size:12px;font-weight:700;">⏱ '+remaining+'</span>';
     }
 
+    if(m.mismatch) statusHtml = '<span style="color:#fc8181;font-size:12px;font-weight:700;">🔒</span>';
     // Linha de palpite
     let pickHtml;
     const inlineStyle = 'width:40px;padding:3px 5px;font-size:13px;text-align:center;border-radius:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text);';
@@ -2435,7 +2481,9 @@ function renderUpcomingTab(){
       + '<span style="color:var(--muted);font-size:11px;padding:0 2px;">×</span>'
       + '<input type="number" id="up-a-'+id+'" min="0" max="20" value="'+(av!==undefined?av:'')+'" placeholder="—" style="'+inlineStyle+'">'
       + '<button onclick="saveUpcomingGroupPick(\''+id+'\');" style="'+saveBtnStyle+'">💾</button>';
-    if(hasPick){
+    if(m.mismatch){
+      pickHtml = '<span style="color:#fc8181;font-size:11px;font-weight:600;">🔒 Você errou a classificação — não dá pra palpitar (esse jogo não vai existir)</span>';
+    } else if(hasPick){
       if(!m.isKO){
         pickHtml = '<span id="up-pick-'+m.id+'" style="display:inline-flex;align-items:center;gap:4px;">'
           + '<span style="color:#4ade80;font-size:12px;">✅ '+pick+'</span>'
@@ -2457,15 +2505,15 @@ function renderUpcomingTab(){
     }
 
     html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;'
-      + 'background:var(--bg2);border:1px solid '+(hasPick?'var(--border)':'rgba(255,215,0,.25)')+';'
+      + 'background:var(--bg2);border:1px solid '+(m.mismatch?'rgba(231,76,60,.45)':(hasPick?'var(--border)':'rgba(255,215,0,.25)'))+';'
       + 'border-radius:8px;margin-bottom:6px;flex-wrap:wrap;">'
 
       // Times
       + '<div style="flex:1;min-width:160px;">'
       + '<div style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:5px;flex-wrap:wrap;">'
-      + '<span style="white-space:nowrap;">' + homeFlag + m.home + '</span>'
+      + '<span style="white-space:nowrap;'+(m.mismatch?'text-decoration:line-through;opacity:0.55;':'')+'">' + homeFlag + m.home + '</span>'
       + '<span style="color:var(--muted);font-size:11px;">×</span>'
-      + '<span style="white-space:nowrap;">' + m.away + awayFlag + '</span>'
+      + '<span style="white-space:nowrap;'+(m.mismatch?'text-decoration:line-through;opacity:0.55;':'')+'">' + m.away + awayFlag + '</span>'
       + '</div>'
       + '<div style="font-size:10px;color:var(--muted);margin-top:2px;">'
       + m.phase + ' · ' + kickoffStr + ' BRT'
@@ -2854,6 +2902,7 @@ function renderBracket(){
     const raw = bPicks[m.id];
     const scoreObj = (raw && typeof raw==='object') ? raw : null;
     const winner = scoreObj ? scoreObj.winner : null;
+    const mediumMismatch = (lvl==='medium' && knockoutMismatchMedium(m.id));
 
     const div=document.createElement('div');
     div.className='bracket-match'+(isSimulation?' bracket-sim':'');
@@ -2878,6 +2927,7 @@ function renderBracket(){
         const ns=document.createElement('span');
         ns.style.cssText='overflow:hidden;text-overflow:ellipsis;flex:1;white-space:nowrap;';
         ns.innerHTML=(cc?flagImg(cc):'')+t;
+        if(mediumMismatch){ ns.style.textDecoration='line-through'; ns.style.opacity='0.55'; }
         d.appendChild(ns);
         const inp=document.createElement('input');
         inp.type='number';inp.min='0';inp.max='20';
@@ -2926,8 +2976,7 @@ function renderBracket(){
     if(lvl==='medium'&&knockoutMismatchMedium(m.id)){
       const warn=document.createElement('div');
       warn.style.cssText='background:rgba(231,76,60,.12);border:1px dashed var(--red);color:#fc8181;padding:4px 6px;border-radius:4px;font-size:10px;text-align:center;margin-top:3px;';
-      const rr=state.realResults.knockout[m.id];
-      warn.textContent='🔒 Você errou os classificados — palpite travado. Real: '+(rr.hTeam||'?')+' vs '+(rr.aTeam||'?');
+      warn.textContent='🔒 Você errou a classificação — este confronto não vai acontecer.';
       div.appendChild(warn);
     }
     return div;
