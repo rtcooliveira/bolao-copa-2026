@@ -2,7 +2,7 @@ name: Atualizar Bolão Copa 2026
 
 on:
   schedule:
-    - cron: '0 * * * *'   # toda hora
+    - cron: '13,43 * * * *'   # 2x/hora em minutos ímpares (fora do pico do GitHub p/ evitar atraso)
   workflow_dispatch:        # permite rodar manualmente pelo GitHub
 
 jobs:
