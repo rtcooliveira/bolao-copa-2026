@@ -4091,6 +4091,109 @@ async function syncGroupResults(bolaoId, opts={}){
 // Diferente do sync: re-confere até o que já está gravado, usando os dados
 // FINAIS da ESPN (janela ±1 dia p/ fuso) e corrige divergências automaticamente.
 // =====================================================
+// =====================================================
+// KNOCKOUT SYNC — resultados do mata-mata via ESPN (modo easy)
+// =====================================================
+async function fetchESPNKnockout(date, league){
+  const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/scoreboard?dates=${date}`;
+  const r = await fetch(url);
+  if(!r.ok) throw new Error('ESPN HTTP '+r.status);
+  const data = await r.json();
+  return (data.events||[]).map(ev=>{
+    const comps = ev.competitions?.[0]?.competitors || [];
+    const home = comps.find(c=>c.homeAway==='home');
+    const away = comps.find(c=>c.homeAway==='away');
+    const st = ev.status?.type || {};
+    const finished = st.completed===true || st.name==='STATUS_FINAL' || st.name==='STATUS_FULL_TIME' || st.description==='Full Time';
+    return {
+      homeName: home?.team?.displayName || '',
+      awayName: away?.team?.displayName || '',
+      homeScore: parseInt(home?.score ?? '0',10),
+      awayScore: parseInt(away?.score ?? '0',10),
+      homeWinner: home?.winner===true,
+      awayWinner: away?.winner===true,
+      finished,
+    };
+  });
+}
+
+const KO_NEXT_W = {
+  M89:['M74','M77'], M90:['M73','M75'], M91:['M76','M78'], M92:['M79','M80'],
+  M93:['M83','M84'], M94:['M81','M82'], M95:['M86','M88'], M96:['M85','M87'],
+  M97:['M89','M90'], M98:['M93','M94'], M99:['M91','M92'], M100:['M95','M96'],
+  M101:['M97','M98'], M102:['M99','M100'], M104:['M101','M102'],
+};
+const KO_NEXT_L = { M103:['M101','M102'] };
+
+async function syncKnockoutResults(bolaoId, opts={}){
+  const { league='fifa.world', teamMap=ESPN_PT_MAP } = opts;
+  if(!db || !bolaoId) return {synced:[], seeded:[]};
+  const ptToEspnSet={};
+  Object.entries(teamMap).forEach(([espn,pt])=>{ (ptToEspnSet[pt]=ptToEspnSet[pt]||[]).push(espn); });
+  const espnNamesOf = pt => ptToEspnSet[pt] || [];
+  const koSnap = await db.ref('/boloes/'+bolaoId+'/realResults/knockout').get();
+  let ko = koSnap.val() || {};
+  const now = Date.now();
+  const BUFFER = 2*60*60*1000;
+  const dateCache = {};
+  async function eventsFor(ms){
+    const ds = toYYYYMMDD(new Date(ms));
+    if(dateCache[ds]!==undefined) return dateCache[ds];
+    try{ dateCache[ds] = await fetchESPNKnockout(ds, league); }
+    catch(e){ dateCache[ds] = null; }
+    return dateCache[ds];
+  }
+  const synced=[];
+  for(const mid of Object.keys(ko)){
+    const slot = ko[mid];
+    if(!slot || !slot.hTeam || !slot.aTeam) continue;
+    const sched = WC_SCHEDULE[mid];
+    if(!sched || !sched.t || now < sched.t + BUFFER) continue;
+    const hNames = espnNamesOf(slot.hTeam), aNames = espnNamesOf(slot.aTeam);
+    if(!hNames.length || !aNames.length) continue;
+    let ev=null;
+    for(const dd of [sched.t, sched.t-864e5, sched.t+864e5]){
+      const evs = await eventsFor(dd);
+      if(!evs) continue;
+      ev = evs.find(e=>(hNames.includes(e.homeName)&&aNames.includes(e.awayName))||(aNames.includes(e.homeName)&&hNames.includes(e.awayName)));
+      if(ev) break;
+    }
+    if(!ev || !ev.finished) continue;
+    let home, away, hWin, aWin;
+    if(hNames.includes(ev.homeName)){ home=ev.homeScore; away=ev.awayScore; hWin=ev.homeWinner; aWin=ev.awayWinner; }
+    else { home=ev.awayScore; away=ev.homeScore; hWin=ev.awayWinner; aWin=ev.homeWinner; }
+    // Vencedor confirmado pelo NOME via flag oficial da ESPN (winner:true); placar é só apoio
+    let winner=null, penaltyWinner=null;
+    if(hWin && !aWin) winner=slot.hTeam;
+    else if(aWin && !hWin) winner=slot.aTeam;
+    else if(home>away) winner=slot.hTeam;
+    else if(away>home) winner=slot.aTeam;
+    if(!winner) continue;                       // empate sem vencedor definido na ESPN ainda → espera próxima passada
+    if(home===away) penaltyWinner=winner;       // empate no tempo normal → decidido nos pênaltis
+    const obj={hTeam:slot.hTeam, aTeam:slot.aTeam, home, away, winner};
+    if(penaltyWinner) obj.penaltyWinner=penaltyWinner;
+    const cur=ko[mid];
+    const same = cur && cur.home===obj.home && cur.away===obj.away && cur.winner===obj.winner && (cur.penaltyWinner||null)===(obj.penaltyWinner||null);
+    if(same) continue;                          // já está igual ao da ESPN → não regrava
+    await db.ref('/boloes/'+bolaoId+'/realResults/knockout/'+mid).set(obj);
+    ko[mid]=obj;
+    synced.push(mid+': '+slot.hTeam+' '+home+'x'+away+' '+slot.aTeam+' ('+winner+')');
+  }
+  const seeded=[];
+  const winOf = m => (ko[m]&&ko[m].winner)||null;
+  const loseOf = m => { const x=ko[m]; if(!x||!x.winner) return null; return x.winner===x.hTeam?x.aTeam:x.hTeam; };
+  async function seedSlot(id, h, a){
+    if(h && a && !(ko[id] && ko[id].hTeam)){
+      await db.ref('/boloes/'+bolaoId+'/realResults/knockout/'+id).update({hTeam:h, aTeam:a});
+      ko[id]=Object.assign({}, ko[id]||{}, {hTeam:h, aTeam:a});
+      seeded.push(id+': '+h+' x '+a);
+    }
+  }
+  for(const id of Object.keys(KO_NEXT_W)){ const [h,a]=KO_NEXT_W[id]; await seedSlot(id, winOf(h), winOf(a)); }
+  for(const id of Object.keys(KO_NEXT_L)){ const [h,a]=KO_NEXT_L[id]; await seedSlot(id, loseOf(h), loseOf(a)); }
+  return {synced, seeded};
+}
+
 async function auditResultsVsESPN(bolaoId, opts={}){
   const { league='fifa.world', teamMap=ESPN_PT_MAP, autofix=true } = opts;
   if(!db || !bolaoId) return {error:'Firebase ou bolão não disponível'};
@@ -4219,9 +4322,10 @@ async function adminForceSyncESPN(){
   const spinner=document.getElementById('espn-sync-spinner');
   if(spinner) spinner.style.display='inline';
   try{
-    const [result, ts] = await Promise.all([
+    const [result, ts, koRes] = await Promise.all([
       syncGroupResults(bid),
       syncTopScorers(bid),
+      syncKnockoutResults(bid),
     ]);
     renderSyncStatus(result);
     applySyncedToAdminInputs(result.synced);
@@ -4231,6 +4335,7 @@ async function adminForceSyncESPN(){
     const msgs = [];
     if(result.synced?.length) msgs.push(`${result.synced.length} resultado(s)`);
     if(ts.synced > 0) msgs.push(`${ts.synced} artilheiro(s)`);
+    if(koRes && koRes.synced?.length) msgs.push(`${koRes.synced.length} jogo(s) do mata-mata`);
     if(audit && audit.fixed) msgs.push(`${audit.fixed} corrigido(s) na auditoria`);
     if(msgs.length) toast(msgs.join(' · ')+' sincronizado(s)!','success');
     else if(result.noPending) toast('Nenhuma partida pendente no momento','success');
@@ -4263,10 +4368,11 @@ async function adminTestSyncESPN(){
 function startAutoResultSync(bolaoId){
   if(_espnSyncInterval) clearInterval(_espnSyncInterval);
   const runOnce = (announce)=>{
-    Promise.all([syncGroupResults(bolaoId), syncTopScorers(bolaoId)])
-      .then(async ([r])=>{
+    Promise.all([syncGroupResults(bolaoId), syncTopScorers(bolaoId), syncKnockoutResults(bolaoId)])
+      .then(async ([r,,koRes])=>{
         renderSyncStatus(r);
         if(announce && r.synced?.length) toast(`${r.synced.length} resultado(s) auto-sincronizado(s) com a ESPN!`,'success');
+        if(announce && koRes && koRes.synced?.length) toast(`${koRes.synced.length} jogo(s) do mata-mata auto-sincronizado(s)!`,'success');
         // Dupla-verificação automática: corrige qualquer placar divergente da ESPN
         try{
           const audit = await auditResultsVsESPN(bolaoId,{autofix:true});
@@ -4275,7 +4381,7 @@ function startAutoResultSync(bolaoId){
       }).catch(()=>{});
   };
   runOnce(false);                                            // imediata, silenciosa
-  _espnSyncInterval=setInterval(()=>runOnce(true), 3*60*60*1000); // a cada 3h
+  _espnSyncInterval=setInterval(()=>runOnce(true), 30*60*1000); // a cada 30 min
 }
 
 async function saveAdminResults(){
