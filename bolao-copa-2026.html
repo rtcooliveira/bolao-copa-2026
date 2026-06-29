@@ -2476,6 +2476,11 @@ function renderUpcomingTab(){
     let pickHtml;
     const inlineStyle = 'width:40px;padding:3px 5px;font-size:13px;text-align:center;border-radius:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text);';
     const saveBtnStyle = 'padding:3px 8px;font-size:12px;background:var(--gold);color:#000;border:none;border-radius:4px;cursor:pointer;font-weight:700;margin-left:2px;';
+    const inlineKOInputs = (id, hv, av) =>
+      '<input type="number" id="up-h-'+id+'" min="0" max="20" value="'+(hv!==undefined&&hv!==null?hv:'')+'" placeholder="—" style="'+inlineStyle+'">'
+      + '<span style="color:var(--muted);font-size:11px;padding:0 2px;">×</span>'
+      + '<input type="number" id="up-a-'+id+'" min="0" max="20" value="'+(av!==undefined&&av!==null?av:'')+'" placeholder="—" style="'+inlineStyle+'">'
+      + '<button onclick="saveUpcomingKOPick(\''+id+'\');" style="'+saveBtnStyle+'">💾</button>';
     const inlineInputs = (id, hv, av) =>
       '<input type="number" id="up-h-'+id+'" min="0" max="20" value="'+(hv!==undefined?hv:'')+'" placeholder="—" style="'+inlineStyle+'">'
       + '<span style="color:var(--muted);font-size:11px;padding:0 2px;">×</span>'
@@ -2491,7 +2496,10 @@ function renderUpcomingTab(){
           + 'onclick="showUpcomingEdit(\''+m.id+'\')">✏️</span>'
           + '</span>';
       } else {
-        pickHtml = '<span style="color:#4ade80;font-size:12px;">✅ ' + pick + '</span>';
+        const _kp = bPicks[m.id] || {};
+        pickHtml = '<span id="up-pick-'+m.id+'" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">'
+          + '<span style="color:#4ade80;font-size:11px;margin-right:2px;">✅</span>'
+          + inlineKOInputs(m.id, _kp.home, _kp.away) + '</span>';
       }
     } else {
       if(!m.isKO){
@@ -2499,8 +2507,8 @@ function renderUpcomingTab(){
         pickHtml = '<span id="up-pick-'+m.id+'" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">'
           + inlineInputs(m.id, ep.home, ep.away) + '</span>';
       } else {
-        pickHtml = '<span style="color:var(--gold);font-size:12px;cursor:pointer;text-decoration:underline;" '
-          + 'onclick="showTab(\'bracket\')">⚠️ Preencher</span>';
+        pickHtml = '<span id="up-pick-'+m.id+'" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">'
+          + inlineKOInputs(m.id) + '</span>';
       }
     }
 
@@ -2569,6 +2577,57 @@ async function saveUpcomingGroupPick(mid){
   if(!db) return toast('Firebase não configurado','error');
   try{
     await db.ref('/boloes/'+state.bolaoId+'/participants/'+state.userId+'/picks/groups').set(state.picks.groups);
+    toast('Palpite salvo! ✅','success');
+    renderUpcomingTab();
+  }catch(e){ toast('Erro: '+e.message,'error'); }
+}
+
+function upcomingKOTeams(mid){
+  const rr = state.realResults && state.realResults.knockout && state.realResults.knockout[mid];
+  if(getLevel()==='easy'){
+    const rk = realR32Teams()[mid];
+    return { home: (rk&&rk.home)||(rr&&rr.hTeam)||null, away: (rk&&rk.away)||(rr&&rr.aTeam)||null };
+  }
+  const st = calcAllStandings(state.picks.groups||{});
+  const t = getKnockoutTeams(mid, st, getBest8Thirds(st));
+  return { home: t.home, away: t.away };
+}
+
+async function saveUpcomingKOPick(mid){
+  const h = document.getElementById('up-h-'+mid);
+  const a = document.getElementById('up-a-'+mid);
+  if(!h || !a || h.value==='' || a.value==='') return toast('Preencha os dois placares','error');
+  const hv = parseInt(h.value), av = parseInt(a.value);
+  if(isNaN(hv)||isNaN(av)||hv<0||av<0) return toast('Placar inválido','error');
+  if(isMatchLocked(mid)) return toast('Prazo encerrado para este jogo','error');
+  const teams = upcomingKOTeams(mid);
+  if(!teams.home || !teams.away) return toast('Os times deste jogo ainda não foram definidos','error');
+  if(hv === av){
+    const cont = document.getElementById('up-pick-'+mid);
+    if(cont){
+      const bs = 'padding:3px 8px;font-size:11px;background:var(--gold);color:#000;border:none;border-radius:4px;cursor:pointer;font-weight:700;margin-left:4px;';
+      cont.innerHTML = '<span style="font-size:11px;color:var(--gold);">Empate '+hv+'×'+av+' — quem avança?</span>'
+        + '<button style="'+bs+'" onclick="finishUpcomingKOPick(\''+mid+'\','+hv+','+av+',\''+teams.home+'\')">'+teams.home+'</button>'
+        + '<button style="'+bs+'" onclick="finishUpcomingKOPick(\''+mid+'\','+hv+','+av+',\''+teams.away+'\')">'+teams.away+'</button>';
+    }
+    return;
+  }
+  const winner = hv > av ? teams.home : teams.away;
+  await persistUpcomingKO(mid, { home:hv, away:av, winner });
+}
+
+async function finishUpcomingKOPick(mid, hv, av, winner){
+  await persistUpcomingKO(mid, { home:hv, away:av, winner, penaltyWinner:winner });
+}
+
+async function persistUpcomingKO(mid, obj){
+  if(isMatchLocked(mid)) return toast('Prazo encerrado para este jogo','error');
+  if(!state.picks.knockout) state.picks.knockout = {};
+  state.picks.knockout[mid] = obj;
+  bPicks[mid] = obj;
+  if(!db) return toast('Firebase não configurado','error');
+  try{
+    await db.ref('/boloes/'+state.bolaoId+'/participants/'+state.userId+'/picks/knockout/'+mid).set(obj);
     toast('Palpite salvo! ✅','success');
     renderUpcomingTab();
   }catch(e){ toast('Erro: '+e.message,'error'); }
