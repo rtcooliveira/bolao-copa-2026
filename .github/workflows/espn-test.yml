@@ -1,15 +1,11 @@
-name: ESPN Test
+name: Sync Mata-Mata ESPN
 on:
+  schedule:
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 jobs:
-  test:
+  sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Check ESPN live
-        run: |
-          node -e '
-          fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260628")
-            .then(r=>r.json())
-            .then(j=>{const c=j.events[0].competitions[0];console.log("M73:",c.competitors.map(x=>x.team.displayName+" "+x.score).join(" vs "),"["+c.status.type.name+"]");})
-            .catch(e=>{console.log("ERRO",e.message);process.exit(1);});
-          '
+      - uses: actions/checkout@v4
+      - run: node .github/scripts/sync.mjs
