@@ -217,6 +217,27 @@ input:focus,select:focus{border-color:var(--gold);}
 .breakdown-cat .b-row .b-val{font-weight:700;}
 .breakdown-cat .b-row .b-val.hit{color:#4ade80;}
 .breakdown-cat .b-row .b-val.miss{color:var(--muted);}
+.bd-cat{margin:0;}
+.bd-cat>summary{display:flex;justify-content:space-between;align-items:center;cursor:pointer;list-style:none;padding:5px 0;font-size:13px;}
+.bd-cat>summary::-webkit-details-marker{display:none;}
+.bd-cat>summary .b-val{font-weight:700;}
+.bd-cat>summary .b-val.hit{color:#4ade80;}
+.bd-cat>summary .b-val.miss{color:var(--muted);}
+.bd-cat>summary .caret{display:inline-block;transition:transform .15s;color:var(--muted);font-size:9px;margin-right:3px;}
+.bd-cat[open]>summary .caret{transform:rotate(90deg);}
+.bd-n{color:var(--muted);font-weight:400;font-size:11px;}
+.bd-games{padding:2px 0 8px 14px;}
+.bd-game{display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:3px 0;border-bottom:1px dashed var(--border);}
+.bd-game:last-child{border-bottom:none;}
+.bd-g-match{color:var(--text);}
+.bd-g-info{color:var(--muted);white-space:nowrap;}
+.bd-v{color:var(--muted);}
+.pk-badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px;font-weight:700;vertical-align:middle;}
+.bg-cravou{background:rgba(0,176,79,.22);color:#4ade80;}
+.bg-acertou{background:rgba(59,130,246,.22);color:#60a5fa;}
+.bg-avancou{background:rgba(255,215,0,.18);color:#FFD700;}
+.bg-errou{background:rgba(231,76,60,.18);color:#f87171;}
+.pk-pts{font-size:10px;color:var(--muted);margin-left:5px;}
 .breakdown-total{background:var(--gold);color:#000;padding:12px 14px;border-radius:8px;font-weight:800;text-align:center;font-size:17px;margin-top:14px;display:flex;justify-content:space-between;}
 /* ADMIN BOLAO PANEL */
 .participant-list{display:flex;flex-direction:column;gap:8px;}
@@ -337,9 +358,9 @@ input:focus,select:focus{border-color:var(--gold);}
         <details style="margin:12px 0;text-align:left;">
           <summary style="cursor:pointer;font-size:12px;color:var(--muted);padding:4px 0;user-select:none;">⚙️ Configurar pontuação (opcional)</summary>
           <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">Placar exato (grupos)</label><input type="number" id="sr-exactScore" value="10" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
-            <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">Resultado certo (grupos)</label><input type="number" id="sr-correctResult" value="5" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
-            <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">Avanço mata-mata (por jogo)</label><input type="number" id="sr-knockout" value="5" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
+            <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">Placar exato (grupos + mata)</label><input type="number" id="sr-exactScore" value="10" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
+            <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">Resultado certo (grupos + mata)</label><input type="number" id="sr-correctResult" value="5" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
+            <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">Quem avança (mata-mata)</label><input type="number" id="sr-knockout" value="5" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
             <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">Fase do Brasil</label><input type="number" id="sr-brazilStage" value="20" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
             <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">Artilheiro</label><input type="number" id="sr-topScorer" value="20" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
             <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px;">3º Lugar</label><input type="number" id="sr-thirdPlace" value="20" min="0" max="999" style="width:100%;padding:6px 8px;font-size:13px;"></div>
@@ -606,9 +627,9 @@ input:focus,select:focus{border-color:var(--gold);}
         <div class="card-title">🎯 Regras de Pontuação</div>
         <p class="text-muted mb-16">Alterações aqui recalculam o ranking retroativamente. <b>Só permitido antes do deadline.</b></p>
         <div class="rules-grid">
-          <div><label>Placar exato (grupos)</label><input type="number" id="ab-exactScore" min="0" max="999"></div>
-          <div><label>Resultado certo (grupos)</label><input type="number" id="ab-correctResult" min="0" max="999"></div>
-          <div><label>Mata-mata (por jogo)</label><input type="number" id="ab-knockout" min="0" max="999"></div>
+          <div><label>Placar exato (grupos + mata)</label><input type="number" id="ab-exactScore" min="0" max="999"></div>
+          <div><label>Resultado certo (grupos + mata)</label><input type="number" id="ab-correctResult" min="0" max="999"></div>
+          <div><label>Quem avança (mata-mata)</label><input type="number" id="ab-knockout" min="0" max="999"></div>
           <div><label>Fase do Brasil</label><input type="number" id="ab-brazilStage" min="0" max="999"></div>
           <div><label>Artilheiro</label><input type="number" id="ab-topScorer" min="0" max="999"></div>
           <div><label>3º Lugar</label><input type="number" id="ab-thirdPlace" min="0" max="999"></div>
@@ -3321,15 +3342,26 @@ function calcScoreFull(picks, realResults){
     Object.entries(realResults.knockout).forEach(([mid, realObj])=>{
       if(!realObj || typeof realObj !== 'object' || !realObj.winner) return;
       const pickObj = (picks.knockout||{})[mid];
-      let pts = 0, kind = 'wrong';
-      if(!pickObj || typeof pickObj !== 'object'){ kind = 'noPick'; }
-      else if(typeof pickObj.home==='number' && typeof realObj.home==='number'
-              && pickObj.home === realObj.home && pickObj.away === realObj.away){
-        pts = sr.exactScore; kind = 'exact';
-      } else if(pickObj.winner && pickObj.winner === realObj.winner){
-        pts = sr.knockout; kind = 'correct';
+      // Mata-mata = dois componentes que SOMAM: PLACAR + QUEM AVANCA.
+      //   Placar: cravou exato -> exactScore; acertou o tipo de resultado (empate/vitoria) -> correctResult; senao 0.
+      //   Quem avanca: pick.winner === real.winner -> knockout; senao 0.
+      let placarKind = 'wrong', placarPts = 0, avancoHit = false, avancoPts = 0;
+      if(!pickObj || typeof pickObj !== 'object'){
+        placarKind = 'noPick';
+      } else {
+        if(typeof pickObj.home==='number' && typeof realObj.home==='number'){
+          if(pickObj.home === realObj.home && pickObj.away === realObj.away){
+            placarKind = 'exact'; placarPts = sr.exactScore;
+          } else {
+            const rr = realObj.home > realObj.away ? 1 : realObj.home < realObj.away ? -1 : 0;
+            const pr = pickObj.home > pickObj.away ? 1 : pickObj.home < pickObj.away ? -1 : 0;
+            if(rr === pr){ placarKind = 'result'; placarPts = sr.correctResult; }
+          }
+        }
+        if(pickObj.winner && pickObj.winner === realObj.winner){ avancoHit = true; avancoPts = sr.knockout; }
       }
-      breakdown.knockout.items.push({ mid, pick: pickObj, real: realObj, pts, kind });
+      const pts = placarPts + avancoPts;
+      breakdown.knockout.items.push({ mid, pick: pickObj, real: realObj, pts, placarKind, placarPts, avancoHit, avancoPts });
       breakdown.knockout.points += pts;
     });
   }
@@ -3437,6 +3469,44 @@ function renderRulesUpdateNotice(){
   }
 }
 
+// ---- Detalhamento: linhas jogo-a-jogo + badges ----
+function _bdGameGroup(it){
+  const pk = (it.pick && it.pick.home!==undefined) ? `${it.pick.home}×${it.pick.away}` : '—';
+  const rl = it.real ? `${it.real.home}×${it.real.away}` : '—';
+  return `<div class="bd-game"><span class="bd-g-match">${flagImg(it.homeCC,11)}${it.home} <span class="bd-v">×</span> ${flagImg(it.awayCC,11)}${it.away}</span><span class="bd-g-info">você <b>${pk}</b> · real <b>${rl}</b></span></div>`;
+}
+function _bdGameKO(it){
+  const r = it.real||{}, p = it.pick||{};
+  const names = (r.hTeam||'?') + ' × ' + (r.aTeam||'?');
+  const rl = (typeof r.home==='number') ? `${r.home}×${r.away}` : '—';
+  const rwin = r.winner ? ` → ${r.winner}` : '';
+  const pk = (typeof p.home==='number') ? `${p.home}×${p.away}` : '—';
+  const pwin = p.winner ? ` → ${p.winner}` : '';
+  return `<div class="bd-game"><span class="bd-g-match">${it.mid} · ${names}</span><span class="bd-g-info">você <b>${pk}${pwin}</b> · real <b>${rl}${rwin}</b></span></div>`;
+}
+function _bdRow(label, valHtml, valClass, items, lineFn){
+  if(!items || !items.length){
+    return `<div class="b-row"><span>${label}</span><span class="b-val ${valClass}">${valHtml}</span></div>`;
+  }
+  return `<details class="bd-cat"><summary><span><span class="caret">▶</span> ${label} <span class="bd-n">(${items.length})</span></span><span class="b-val ${valClass}">${valHtml}</span></summary><div class="bd-games">${items.map(lineFn).join('')}</div></details>`;
+}
+function _pkBadgeGroup(it){
+  if(!it) return '';
+  if(it.kind==='exact') return ` <span class="pk-badge bg-cravou">🎯 Cravou</span>`;
+  if(it.kind==='correct') return ` <span class="pk-badge bg-acertou">✅ Resultado</span>`;
+  if(it.kind==='wrong') return ` <span class="pk-badge bg-errou">❌ Errou</span>`;
+  return '';
+}
+function _pkBadgeKO(it){
+  if(!it) return '';
+  let out='';
+  if(it.placarKind==='exact') out += ` <span class="pk-badge bg-cravou">🎯 Cravou</span>`;
+  else if(it.placarKind==='result') out += ` <span class="pk-badge bg-acertou">✅ Resultado</span>`;
+  if(it.avancoHit) out += ` <span class="pk-badge bg-avancou">➡️ Avançou</span>`;
+  if(!out) out = ` <span class="pk-badge bg-errou">❌ Errou</span>`;
+  out += ` <span class="pk-pts">+${it.pts}</span>`;
+  return out;
+}
 function openBreakdown(uid){
   const cached = _rankCache[uid];
   if(!cached) return toast('Carregue o ranking novamente','error');
@@ -3463,24 +3533,26 @@ function openBreakdown(uid){
   const gWrong = bk.groups.items.filter(it=>it.kind==='wrong');
   const gNo = bk.groups.items.filter(it=>it.kind==='noPick');
   html += `<div class="breakdown-cat"><h4>⚽ Fase de Grupos — ${bk.groups.points} pts</h4>`;
-  html += `<div class="b-row"><span>Placares exatos</span><span class="b-val ${ge.length?'hit':'miss'}">${ge.length} × ${sr.exactScore} = ${ge.length*sr.exactScore}</span></div>`;
-  html += `<div class="b-row"><span>Resultados certos</span><span class="b-val ${gc.length?'hit':'miss'}">${gc.length} × ${sr.correctResult} = ${gc.length*sr.correctResult}</span></div>`;
-  html += `<div class="b-row"><span>Errados</span><span class="b-val miss">${gWrong.length}</span></div>`;
-  html += `<div class="b-row"><span>Sem palpite</span><span class="b-val miss">${gNo.length}</span></div>`;
+  html += _bdRow('Placares exatos', `${ge.length} × ${sr.exactScore} = ${ge.length*sr.exactScore}`, ge.length?'hit':'miss', ge, _bdGameGroup);
+  html += _bdRow('Resultados certos', `${gc.length} × ${sr.correctResult} = ${gc.length*sr.correctResult}`, gc.length?'hit':'miss', gc, _bdGameGroup);
+  html += _bdRow('Errados', `${gWrong.length}`, 'miss', gWrong, _bdGameGroup);
+  html += _bdRow('Sem palpite', `${gNo.length}`, 'miss', gNo, _bdGameGroup);
   html += `</div>`;
 
-  const ke = bk.knockout.items.filter(it=>it.kind==='exact');
-  const kc = bk.knockout.items.filter(it=>it.kind==='correct');
-  const kWrong = bk.knockout.items.filter(it=>it.kind==='wrong');
-  const kNo = bk.knockout.items.filter(it=>it.kind==='noPick');
+  const ke = bk.knockout.items.filter(it=>it.placarKind==='exact');
+  const kr = bk.knockout.items.filter(it=>it.placarKind==='result');
+  const kAdv = bk.knockout.items.filter(it=>it.avancoHit);
+  const kWrong = bk.knockout.items.filter(it=>it.placarKind==='wrong' && !it.avancoHit);
+  const kNo = bk.knockout.items.filter(it=>it.placarKind==='noPick');
   html += `<div class="breakdown-cat"><h4>🏆 Mata-Mata — ${bk.knockout.points} pts</h4>`;
   if(bk.knockout.items.length === 0){
     html += `<div class="b-row"><span style="color:var(--muted);">Sem resultados de mata-mata ainda</span><span></span></div>`;
   } else {
-    html += `<div class="b-row"><span>Placares exatos</span><span class="b-val ${ke.length?'hit':'miss'}">${ke.length} × ${sr.exactScore} = ${ke.length*sr.exactScore}</span></div>`;
-    html += `<div class="b-row"><span>Vencedores corretos</span><span class="b-val ${kc.length?'hit':'miss'}">${kc.length} × ${sr.knockout} = ${kc.length*sr.knockout}</span></div>`;
-    html += `<div class="b-row"><span>Errados</span><span class="b-val miss">${kWrong.length}</span></div>`;
-    html += `<div class="b-row"><span>Sem palpite</span><span class="b-val miss">${kNo.length}</span></div>`;
+    html += _bdRow('Placares exatos', `${ke.length} × ${sr.exactScore} = ${ke.length*sr.exactScore}`, ke.length?'hit':'miss', ke, _bdGameKO);
+    html += _bdRow('Resultados certos', `${kr.length} × ${sr.correctResult} = ${kr.length*sr.correctResult}`, kr.length?'hit':'miss', kr, _bdGameKO);
+    html += _bdRow('Quem avançou', `${kAdv.length} × ${sr.knockout} = ${kAdv.length*sr.knockout}`, kAdv.length?'hit':'miss', kAdv, _bdGameKO);
+    html += _bdRow('Errados', `${kWrong.length}`, 'miss', kWrong, _bdGameKO);
+    html += _bdRow('Sem palpite', `${kNo.length}`, 'miss', kNo, _bdGameKO);
   }
   html += `</div>`;
 
@@ -4580,8 +4652,17 @@ async function loadStatsTab(){
       if(!realObj || !realObj.winner) return;
       const pick = myPicks.knockout && myPicks.knockout[mid];
       if(!pick){ myNoPick++; return; }
-      if(typeof pick.home==='number' && pick.home===realObj.home && pick.away===realObj.away){ myExact++; myPts += sr.exactScore; }
-      else if(pick.winner && pick.winner === realObj.winner){ myCorrect++; myPts += sr.knockout; }
+      let p = 0, exact = false;
+      if(typeof pick.home==='number' && pick.home===realObj.home && pick.away===realObj.away){ p += sr.exactScore; exact = true; }
+      else if(typeof pick.home==='number'){
+        const rk = realObj.home>realObj.away?1:realObj.home<realObj.away?-1:0;
+        const pk = pick.home>pick.away?1:pick.home<pick.away?-1:0;
+        if(rk===pk) p += sr.correctResult;
+      }
+      if(pick.winner && pick.winner===realObj.winner) p += sr.knockout;
+      myPts += p;
+      if(exact) myExact++;
+      else if(p>0) myCorrect++;
       else myWrong++;
     });
   }
@@ -4735,6 +4816,9 @@ function showPicksTable(uid){
   const cached = _rankCache[uid];
   if(!cached) return toast('Carregue o ranking novamente','error');
   const picks = cached.picks || {groups:{},knockout:{},bonuses:{}};
+  const _bk = state.realResults ? calcScoreFull(picks, state.realResults) : null;
+  const _gOut = {}, _kOut = {};
+  if(_bk){ _bk.groups.items.forEach(it=>{_gOut[it.mid]=it;}); _bk.knockout.items.forEach(it=>{_kOut[it.mid]=it;}); }
   const name = cached.name || '?';
   const isOwnPicks = uid === state.userId;
   const overlay = document.getElementById('breakdown-overlay');
@@ -4761,7 +4845,7 @@ function showPicksTable(uid){
         if(isOwnPicks || matchPast){
           html += `<div class="b-row" style="font-size:12px;">
             <span>${flagImg(m.home.cc,12)}${m.home.n} vs ${flagImg(m.away.cc,12)}${m.away.n}</span>
-            <span class="b-val">${p.home} × ${p.away}</span>
+            <span class="b-val">${p.home} × ${p.away}${_pkBadgeGroup(_gOut[m.id])}</span>
           </div>`;
         } else {
           html += `<div class="b-row" style="font-size:12px;">
@@ -4808,7 +4892,7 @@ function showPicksTable(uid){
       if(isOwnPicks || matchPast){
         html += `<div class="b-row" style="font-size:12px;">
           <span style="color:var(--muted);">${m.id}</span>
-          <span class="b-val">${p.winner||'?'}${scoreStr}${penStr}</span>
+          <span class="b-val">${p.winner||'?'}${scoreStr}${penStr}${_pkBadgeKO(_kOut[m.id])}</span>
         </div>`;
       } else {
         html += `<div class="b-row" style="font-size:12px;">
