@@ -1185,6 +1185,19 @@ function isBonusLocked(){
   return state.locked || Date.now() >= BONUS_DEADLINE_MS;
 }
 
+// true se o palpite de um jogo ja pode ser EXIBIDO aos outros participantes.
+// Regra: revela quando o jogo ja esta travado para edicao (ninguem pode mais mudar).
+//   hard        -> trava geral (deadline unico, ~24h antes do 1o jogo)
+//   medium/easy -> trava individual (2h antes do kickoff de cada partida)
+function isMatchRevealable(mid){
+  if(getLevel() === 'hard') return isPastDeadline();
+  return isMatchPastIndividualDeadline(mid);
+}
+// bonus: revela apos o prazo dos bonus (igual para todos os niveis)
+function areBonusesRevealable(){
+  return Date.now() >= BONUS_DEADLINE_MS;
+}
+
 // no nível easy, resolveKO substitui os times do bracket pelos reais
 function resolveKOEasy(mid){
   const rr = state.realResults && state.realResults.knockout && state.realResults.knockout[mid];
@@ -4829,7 +4842,7 @@ function showPicksTable(uid){
   const tsEnabled = state.topScorerEnabled !== false;
 
   let html = `<h3>📋 Palpites — ${name}</h3>`;
-  html += `<div class="b-sub" style="margin-bottom:16px;">${isOwnPicks ? 'Todos os palpites registrados no bolão.' : 'Palpites de outros participantes ficam visíveis somente após o início de cada jogo.'}</div>`;
+  html += `<div class="b-sub" style="margin-bottom:16px;">${isOwnPicks ? 'Todos os palpites registrados no bolão.' : 'Palpites de outros participantes ficam visíveis assim que cada palpite trava (no modo hard, após o prazo geral).'}</div>`;
 
   // GRUPOS — por grupo
   html += `<div class="breakdown-cat"><h4>⚽ Fase de Grupos</h4>`;
@@ -4839,10 +4852,9 @@ function showPicksTable(uid){
     html += `<div style="margin-bottom:8px;"><b style="font-size:12px;color:var(--gold);">Grupo ${g}</b>`;
     matches.forEach(m => {
       const p = (picks.groups||{})[m.id];
-      const sched = WC_SCHEDULE[m.id];
-      const matchPast = !sched || !sched.t || Date.now() > sched.t;
+      const revealable = isMatchRevealable(m.id);
       if(p && p.home !== undefined && p.away !== undefined){
-        if(isOwnPicks || matchPast){
+        if(isOwnPicks || revealable){
           html += `<div class="b-row" style="font-size:12px;">
             <span>${flagImg(m.home.cc,12)}${m.home.n} vs ${flagImg(m.away.cc,12)}${m.away.n}</span>
             <span class="b-val">${p.home} × ${p.away}${_pkBadgeGroup(_gOut[m.id])}</span>
@@ -4884,12 +4896,11 @@ function showPicksTable(uid){
     roundPicks.forEach(m => {
       const p = (picks.knockout||{})[m.id];
       if(!p) return;
-      const sched = WC_SCHEDULE[m.id];
-      const matchPast = !sched || !sched.t || Date.now() > sched.t;
+      const revealable = isMatchRevealable(m.id);
       const hasScore = typeof p.home === 'number' && typeof p.away === 'number';
       const scoreStr = hasScore ? ` (${p.home}×${p.away})` : '';
       const penStr = p.penaltyWinner ? ` · pen: ${p.penaltyWinner}` : '';
-      if(isOwnPicks || matchPast){
+      if(isOwnPicks || revealable){
         html += `<div class="b-row" style="font-size:12px;">
           <span style="color:var(--muted);">${m.id}</span>
           <span class="b-val">${p.winner||'?'}${scoreStr}${penStr}${_pkBadgeKO(_kOut[m.id])}</span>
@@ -4909,13 +4920,15 @@ function showPicksTable(uid){
   // BÔNUS
   html += `<div class="breakdown-cat"><h4>⭐ Bônus</h4>`;
   const b = picks.bonuses || {};
-  html += `<div class="b-row"><span>🇧🇷 Brasil</span><span class="b-val">${bl[b.brazilStage]||'—'}</span></div>`;
+  const bonusVisible = isOwnPicks || areBonusesRevealable();
+  const bv = (val) => bonusVisible ? (val||'—') : '🔒';
+  html += `<div class="b-row"><span>🇧🇷 Brasil</span><span class="b-val">${bonusVisible ? (bl[b.brazilStage]||'—') : '🔒'}</span></div>`;
   if(tsEnabled){
-    html += `<div class="b-row"><span>👟 Artilheiro</span><span class="b-val">${b.topScorer||'—'}</span></div>`;
+    html += `<div class="b-row"><span>👟 Artilheiro</span><span class="b-val">${bv(b.topScorer)}</span></div>`;
   }
-  html += `<div class="b-row"><span>🥉 3º Lugar</span><span class="b-val">${b.thirdPlace||'—'}</span></div>`;
-  html += `<div class="b-row"><span>🥈 Vice</span><span class="b-val">${b.runnerUp||'—'}</span></div>`;
-  html += `<div class="b-row"><span>🏆 Campeão</span><span class="b-val">${b.champion||'—'}</span></div>`;
+  html += `<div class="b-row"><span>🥉 3º Lugar</span><span class="b-val">${bv(b.thirdPlace)}</span></div>`;
+  html += `<div class="b-row"><span>🥈 Vice</span><span class="b-val">${bv(b.runnerUp)}</span></div>`;
+  html += `<div class="b-row"><span>🏆 Campeão</span><span class="b-val">${bv(b.champion)}</span></div>`;
   html += `</div>`;
 
   html += `<div class="text-center mt-16" style="display:flex;gap:8px;justify-content:center;"><button class="btn-muted" onclick="shareBreakdown()">📸 Salvar imagem</button><button class="btn-muted" onclick="closeBreakdown()">Fechar</button></div>`;
